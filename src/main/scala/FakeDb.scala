@@ -31,9 +31,10 @@ trait NotYetPersisted extends Persistable
 case class Person(id: String, first: String, last: String, age: Int) extends Persistable
 
 object Person {
+    
     def create(id: String, first: String, last: String, age: Int): Person with NotYetPersisted = 
         new Person(id, first, last, age) with NotYetPersisted
-    def updated(p: Person with Persisted)(id: String = p.id, first: String = p.first, last: String = p.last, age: Int = p.age): Person with Persisted = {
+    
+    def updated(p: Person with Persisted)(id: String = p.id, first: String = p.first, last: String = p.last, age: Int = p.age): Person with Persisted =
         new Person(id, first, last, age) with Persisted
-    }
 }
