@@ -1,0 +1,181 @@
+<html>
+<head>
+    <title>
+        Phantom Types in Scala
+    </title>
+</head>
+<body>
+<div>
+    <h2>
+        A Simple Introduction to Phantom Types 
+    </h2>
+    <p>
+        Phantom Types are simply Scala types which have no direct instances created of them during
+        run time. They can be thought of as "type decorators" in that they provide extra information
+        about the type to the compiler, and this extra detail can be used to move failures that might
+        have occurred at runtime into the compile time space, providing extra safety, quicker
+        feedback about mistakes, and even sometimes provide better performance during execution
+        (since you can often remove conditional code that would have needed to execute otherwise).
+    </p>
+    <p>
+    	There are different ways to use Phantom Types in Scala. In addition to the 
+    	<a href="http://stackoverflow.com/questions/6358651/marking-primitive-types-with-phantom-types-in-scala" 
+    	target="_blank">simple empty-traits</a>
+    	approach outlined in this example, you can also use them in a 
+    	<a href="https://gist.github.com/gclaramunt/2883664" target="_blank">type-parameter capacity</a>
+    	and you can get much more sophisticated with their usage, even
+    	<a href="http://engineering.foursquare.com/2011/01/31/going-rogue-part-2-phantom-types/" target="_blank">enforcing
+    	rules and transitions</a> for types in the compiler rather than at runtime. (If this last example
+    	looks confusing, you might want to take a look at the type-classes activator template in addition
+    	to this one to see how these two concepts complement each other).
+    </p>
+    <p>
+        This tutorial follows the idea that certain aspects of the state of saved/not-saved objects in
+        a database might be tracked by the compiler rather than relying solely on runtime errors to
+        enforce the rules.
+    </p>
+</div>
+<div>
+	<h2>
+		A Fake Database
+	</h2>
+	<p>
+		Providing the example behavior we need from a simple database, 
+		 <a href="#code/src/main/scala/FakeDb.scala" class="shortcut">FakeDb</a> is a simple faked out
+		database-like thing that at the core of it uses a mutable-map. There are much better
+		and safer implementations, but those are not the point of this tutorial and hence
+		left as an exercise for the reader, just don't expect this kind of fake to work
+		well in a parallel testing environment.
+	</p>
+	<p>
+		The simple rules of our fake database are that:
+		<ul>
+			<li>Only an unsaved Persistable instance may be saved</li>
+			<li>Only a saved Persistable instance may be updated</li>
+			<li>If you look up an item from the database, it must have been saved</li>
+		</ul>
+	</p>
+	<p>
+		Let's take a look at how we have encoded these rules both at runtime, and using phantom types
+		within the three methods in the FakeDb object.
+	</p>
+</div>
+<div>
+	<h2>
+		The save() method
+	</h2>
+	<p>
+		The <a href="#code/src/main/scala/FakeDb.scala" class="shortcut">save() method in FakeDb</a> has
+		rules to prevent accidentally saving an already saved item at both run-time and at compile time.
+		Let's look at the body of the method to see the run-time version first.
+	</p>
+	<p>
+		The first line: <code>require(!objects.contains(p.id), "That ID is already in use")</code>
+		ensures that an object with a matching primary key id has not already been saved to the database.
+		If it has, this operation should be an update, not a save, so we use require to throw an exception
+		(a failed precondition) and prevent one item being accidentally overwritten by another new one
+		being saved.
+	</p>
+	<p>
+		At present, this runtime test is still required for correctness in our example, because the ID is
+		provided by someone creating a new Persistable object, and could be a duplicate of one already in
+		the database. This could be eliminated by making the new Persistent item creation assign a UUID 
+		(Universally Unique Identifier) when a new instance is requested, taking the responsibility away 
+		from the object creator and ensuring that any new instance will not conflict with other instances.
+	</p>
+	<p>
+		The more interesting part is what we have done with the method type signature however. The definition:
+		<pre><code>def save[P <: Persistable](p: P with NotYetPersisted): P with Persisted</code></pre>
+		means that this method takes any subtype of Persistable <b>with NotYetPersisted</b> and gives back
+		that same type P but <b>with Persisted</b> this time. In other words, assuming the method succeeds,
+		it gives back a Persisted type. At the end of the method, we do a simple cast of the value being returned
+		to the Persisted type with <code>.asInstanceOf[P with Persisted]</code>.
+	</p>
+</div>
+<div>
+	<h2>
+		update() and find()
+	</h2>
+	<p>
+		Likewise, the <a href="#code/src/main/scala/FakeDb.scala" class="shortcut">update() method</a>
+		uses phantom types to improve the correctness at compile-time. In this case,
+		<pre><code>def update[P <: Persistable with Persisted](p: P): P</code></pre> ensures that only
+		an instance of Persistable with Persisted already associated with it is acceptable
+		as a parameter to the update method. Simply passing in a Persistable on its own, or
+		a Persistable with NotYetPersisted, will result in a compile error. Since the updated
+		object will also be Persisted, there is no need to cast the return argument in this case, it
+		is the same type as the method parameter.
+	</p>
+	<p>
+		The <a href="#code/src/main/scala/FakeDb.scala" class="shortcut">find() method</a> looks up
+		an item using its ID, and if it finds it, it returns it. Since it has found it in the database,
+		we know that it must already be Persisted, so we can decorate it with that type when we return
+		it. This is once again achieved with a cast at the end of the method.
+	</p>
+</div>
+<div>
+	<h2>
+		The Remaining Pieces
+	</h2>
+	<p>
+		Now let's look at the actual phantom-types and the Persistable type. These will probably seem
+		underwhelming, which they should be. Typically your phantom types will not have any behavior of
+		their own, since they are there to enforce compile-time type checking only, and will fail if you
+		try and cast to them and then call methods on the phantom types, so keep them simple.
+	</p>
+	<p>
+		<a href="#code/src/main/scala/FakeDb.scala" class="shortcut">Persistable</a> is a regular trait
+		and as such defines some behavior of its own, in this case an id field which will ensure that
+		we at least know that a Persistable item has an id of type String.
+	</p>
+	<p>
+		The phantom types <a href="#code/src/main/scala/FakeDb.scala" class="shortcut">NotYetPersisted and Persisted</a>
+		are simple, empty traits, but different types nonetheless. The rules of Scala are such that you can cast
+		types to these and the compiler will believe you, and since they have no new methods or state of their own
+		you cannot accidentally get into trouble by calling those methods and getting a class cast exception.
+	</p>
+	<p>
+		Finally, at the bottom of the source file are the definitions of the 
+		<a href="#code/src/main/scala/FakeDb.scala" class="shortcut">Person</a> case class and companion object.
+		The companion object has a couple of useful methods on them - create is a factory method for creating a
+		new Person with the NotYetPersisted type decorator on it, and updated provides a similar mechanism to the
+		copy() method on case classes, but only works on Persisted instances and also produces a Persisted item
+		on the output. These keep the type system consistent as you create and change the items that are to be
+		saved or updated in the database.
+	</p>
+</div>
+<div>
+	<h2>
+		Phantom Types In Use
+	</h2>
+	<p>
+		Now take a look at the <a href="#code/src/test/scala/DBPersonSpec.scala" class="shortcut">DBPersonSpec</a> test
+		class. This is just a playground for you to mess with and get a feel for what can be caught at run-time
+		versus compile-time now. Follow the comments in the code and uncomment things or try adding statements
+		that you think should cause errors. Note which ones now cause test failures (run-time errors) and which ones
+		will not compile at all (compile-time enforcement). Here are a couple of suggestions to try at the minimum:
+		<ul>
+			<li>On line 27 uncomment the <code>FakeDb.update(p1)</code> line and save. You should see a red
+				error show up on the line after a few seconds. Hover over the red icon to see what the error is.
+				This will not compile because we are trying to update a Person that has not been saved yet.
+			</li>
+			<li>Uncomment lines 43 and 45 also. These attempt to alter an existing but unsaved Person with the
+				updated method, and this also requires that the Person has already been saved. After uncommenting
+				and saving the file, you should once again see errors after a few seconds.
+			</li>
+			<li>Uncomment line 58 which attempts to save an already saved item. Once again, after saving and waiting
+				a few seconds you will see a compile error. The compiler won't let us save an already saved item.
+			</li>
+		</ul>
+	</p>
+	<p>Feel free to try out other things, and also to see if you can encode more of the state surrounding the storage
+		of items in the database using phantom types and other tools that the compiler provides you with. This is a 
+		tiny little example and not very profound in itself, but these same techniques are used on large enterprise
+		systems to help developers stay on top of the many rules more easily, and have caught many errors much earlier
+		than they might have otherwise been caught (either during testing or, worse, in deployed systems). Phantom
+		types make more and more sense the larger your system gets.
+	</p>
+</div>
+
+</body>
+</html>

@@ -1,4 +1,4 @@
-name := """javaone"""
+name := """phantom-types"""
 
 version := "1.0"
 
